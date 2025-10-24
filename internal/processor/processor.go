@@ -28,10 +28,22 @@ type FlatOut struct {
 	StartTime string `json:"starttime"`
 }
 
-func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut, error) {
+type WriteTag struct {
+	TagID       string `json:"tagid"`
+	SosID       string `json:"sosid"`
+	HistorianID string `json:"historianid"`
+	Value       any    `json:"value"`
+}
+
+type WritePayload struct {
+	Status string     `json:"status"`
+	Tags   []WriteTag `json:"tags"`
+}
+
+func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut, string, string, error) {
 	var msg lns.Message
 	if err := json.Unmarshal(payload, &msg); err != nil {
-		return nil, fmt.Errorf("invalid lns json: %w", err)
+		return nil, "", "", fmt.Errorf("invalid lns json: %w", err)
 	}
 	// Prefer deviceInfo.* if provided, else fallback to top-level
 	deviceName := strings.TrimSpace(msg.DeviceInfo.DeviceName)
@@ -43,18 +55,18 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 		devEUI = strings.TrimSpace(msg.DevEUI)
 	}
 	if msg.Data == "" || deviceName == "" || devEUI == "" {
-		return nil, fmt.Errorf("missing fields in lns json")
+		return nil, "", "", fmt.Errorf("missing fields in lns json")
 	}
 	// base64 -> hex
 	raw, err := base64.StdEncoding.DecodeString(msg.Data)
 	if err != nil {
-		return nil, fmt.Errorf("invalid base64 data: %w", err)
+		return nil, "", "", fmt.Errorf("invalid base64 data: %w", err)
 	}
 	hexPayload := strings.ToLower(hex.EncodeToString(raw))
 
 	resp, err := p.Aloxy.Do(ctx, deviceName, hexPayload)
 	if err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
 	valid := resp.Features.ValvePosition.Properties.Valid
 	vpTs := resp.Features.ValvePosition.Properties.Timestamp
@@ -90,7 +102,7 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 		Sensor:    name + "-RBTNP",
 		StartTime: start,
 	})
-	return outs, nil
+	return outs, name, devEUI, nil
 }
 
 func formatToGMT(ts string) string {

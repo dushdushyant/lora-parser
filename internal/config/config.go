@@ -44,9 +44,16 @@ type SensorsConfig struct {
 	MapFile string `ini:"map_file"`
 }
 
+type LoraWriteOutputConfig struct {
+	LoraWriteTopic string `ini:"lora_write_topic"`
+	QoS            int    `ini:"qos"`
+	Retain         bool   `ini:"retain"`
+}
+
 type Config struct {
 	MQTTInput  MQTTConfig
 	MQTTOutput MQTTConfig
+	LoraWriteOutput LoraWriteOutputConfig
 	Aloxy      AloxyConfig
 	Logging    LoggingConfig
 	Sensors    SensorsConfig
@@ -64,6 +71,8 @@ func Load(path string) (Config, error) {
 	if err := f.Section("mqtt_output").MapTo(&cfg.MQTTOutput); err != nil {
 		return cfg, err
 	}
+	// Optional second output topic (uses same broker as MQTTOutput)
+	_ = f.Section("lora_write_output").MapTo(&cfg.LoraWriteOutput)
 	if err := f.Section("aloxy").MapTo(&cfg.Aloxy); err != nil {
 		return cfg, err
 	}
@@ -79,14 +88,28 @@ func Load(path string) (Config, error) {
 	return cfg, nil
 }
 
-func LoadSensorMap(path string) (map[string]string, error) {
-	m := map[string]string{}
+// Sensors file supports two schemas:
+// 1) Back-compat flat map: { "<devEUI>": "<SensorName>", ... }
+// 2) Extended object: { "sensor_names": {devEUI: name}, "tag_map": {sosid: tagid} }
+func LoadSensors(path string) (nameByDevEUI map[string]string, tagIdBySosId map[string]string, err error) {
+	nameByDevEUI = map[string]string{}
+	tagIdBySosId = map[string]string{}
 	b, err := os.ReadFile(path)
-	if err != nil {
-		return m, err
+	if err != nil { return }
+	// Try extended schema first
+	var ext struct {
+		SensorNames map[string]string `json:"sensor_names"`
+		TagMap      map[string]string `json:"tag_map"`
 	}
-	if err := json.Unmarshal(b, &m); err != nil {
-		return m, err
+	if e := json.Unmarshal(b, &ext); e == nil && (len(ext.SensorNames) > 0 || len(ext.TagMap) > 0) {
+		if ext.SensorNames != nil { nameByDevEUI = ext.SensorNames }
+		if ext.TagMap != nil { tagIdBySosId = ext.TagMap }
+		return
 	}
-	return m, nil
+	// Fallback to flat map
+	if e := json.Unmarshal(b, &nameByDevEUI); e != nil {
+		err = e
+		return
+	}
+	return
 }

@@ -29,7 +29,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sensorMap, err := config.LoadSensorMap(cfg.Sensors.MapFile)
+	sensorMap, tagMap, err := config.LoadSensors(cfg.Sensors.MapFile)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to load sensor map")
 	}
@@ -87,7 +87,7 @@ func main() {
 	}
 
 	h := func(topic string, payload []byte) {
-		outs, err := proc.HandleMessage(ctx, payload)
+		outs, _, devEUI, err := proc.HandleMessage(ctx, payload)
 		if err != nil {
 			logger.Error().Err(err).Msg("processing failed")
 			return
@@ -98,6 +98,33 @@ func main() {
 				logger.Error().Err(err).Msg("publish failed")
 			} else {
 				logger.Info().Str("topic", cfg.MQTTOutput.LoraOutputTopic).RawJSON("payload", b).Msg("published")
+			}
+		}
+
+		// Aggregate second output (Option B): single message with array of tags
+		if cfg.LoraWriteOutput.LoraWriteTopic != "" {
+			wp := processor.WritePayload{Status: "W"}
+			for _, o := range outs {
+				sosid := o.Sensor // exactly same as first output's sensor field
+				tagid := tagMap[sosid]
+				if tagid == "" {
+					logger.Warn().Str("sosid", sosid).Msg("missing tagid mapping; skipping tag")
+					continue
+				}
+				wp.Tags = append(wp.Tags, processor.WriteTag{
+					TagID:       tagid,
+					SosID:       sosid,
+					HistorianID: devEUI,
+					Value:       o.Value,
+				})
+			}
+			if len(wp.Tags) > 0 {
+				wb, _ := json.Marshal(wp)
+				if err := outClient.Publish(ctx, cfg.LoraWriteOutput.LoraWriteTopic, byte(cfg.LoraWriteOutput.QoS), cfg.LoraWriteOutput.Retain, wb); err != nil {
+					logger.Error().Err(err).Msg("publish lora_write_output failed")
+				} else {
+					logger.Info().Str("topic", cfg.LoraWriteOutput.LoraWriteTopic).RawJSON("payload", wb).Msg("published lora_write_output")
+				}
 			}
 		}
 	}
