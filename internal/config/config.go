@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strings"
 
 	ini "gopkg.in/ini.v1"
 )
@@ -61,7 +62,9 @@ type Config struct {
 
 func Load(path string) (Config, error) {
 	cfg := Config{}
-	f, err := ini.Load(path)
+	// Use LoadSources with IgnoreInlineComment so '#' in values (e.g., MQTT topics like "application/#")
+	// is not treated as an inline comment and truncated by the parser.
+	f, err := ini.LoadSources(ini.LoadOptions{IgnoreInlineComment: true}, path)
 	if err != nil {
 		return cfg, err
 	}
@@ -82,6 +85,10 @@ func Load(path string) (Config, error) {
 	if err := f.Section("sensors").MapTo(&cfg.Sensors); err != nil {
 		return cfg, err
 	}
+	// Normalize topics: remove surrounding single/double quotes if present
+	cfg.MQTTInput.LoraInputTopic = strings.Trim(cfg.MQTTInput.LoraInputTopic, "\"'")
+	cfg.MQTTOutput.LoraOutputTopic = strings.Trim(cfg.MQTTOutput.LoraOutputTopic, "\"'")
+	cfg.LoraWriteOutput.LoraWriteTopic = strings.Trim(cfg.LoraWriteOutput.LoraWriteTopic, "\"'")
 	if cfg.MQTTInput.Broker == "" || cfg.MQTTOutput.Broker == "" {
 		return cfg, errors.New("mqtt brokers must be set")
 	}
