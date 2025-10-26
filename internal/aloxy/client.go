@@ -35,6 +35,7 @@ type Response struct {
 			Properties struct {
 				Status struct {
 					RightButtonPressed any    `json:"rightButtonPressed"`
+					RightButtonPressedTimestamp string `json:"rightButtonPressedTimestamp"`
 					Timestamp         string `json:"timestamp"`
 				} `json:"status"`
 			} `json:"properties"`
@@ -47,7 +48,15 @@ type Response struct {
 						Closed         any `json:"closed"`
 						OpenPercentage any `json:"openPercentage"`
 					} `json:"logicalPosition"`
+					PhysicalPosition struct {
+						OpenPercentage        any `json:"openPercentage"`
+						TotalRotation         any `json:"totalRotation"`
+						NormalizedTotalRotation any `json:"normalizedTotalRotation"`
+					} `json:"physicalPosition"`
+					Valid     bool   `json:"valid"`
+					Timestamp string `json:"timestamp"`
 				} `json:"status"`
+				// Backward-compat older schema
 				Valid    bool   `json:"valid"`
 				Timestamp string `json:"timestamp"`
 			} `json:"properties"`

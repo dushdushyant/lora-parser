@@ -68,9 +68,23 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 	if err != nil {
 		return nil, "", "", err
 	}
-	valid := resp.Features.ValvePosition.Properties.Valid
-	vpTs := resp.Features.ValvePosition.Properties.Timestamp
+	// Prefer new schema fields inside status, with backward compatibility to older schema
+	valid := resp.Features.ValvePosition.Properties.Status.Valid
+	if !valid {
+		valid = resp.Features.ValvePosition.Properties.Valid
+	}
+	vpTs := resp.Features.ValvePosition.Properties.Status.Timestamp
+	if strings.TrimSpace(vpTs) == "" {
+		vpTs = resp.Features.ValvePosition.Properties.Timestamp
+	}
+	p.Logger.Info().Str("vp_timestamp_raw", vpTs).Msg("aloxy vp timestamp")
 	start := formatToGMT(vpTs)
+	// Right-button event specific timestamp
+	deRbtnpTs := resp.Features.DeviceEvents.Properties.Status.RightButtonPressedTimestamp
+	if strings.TrimSpace(deRbtnpTs) == "" {
+		deRbtnpTs = resp.Features.DeviceEvents.Properties.Status.Timestamp
+	}
+	startRbtnp := formatToGMT(deRbtnpTs)
 
 	name := p.SensorNameByDevEUI[devEUI]
 	if name == "" {
@@ -100,7 +114,7 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 		Value:     resp.Features.DeviceEvents.Properties.Status.RightButtonPressed,
 		Status:    valid,
 		Sensor:    name + "-RBTNP",
-		StartTime: start,
+		StartTime: startRbtnp,
 	})
 	return outs, name, devEUI, nil
 }
