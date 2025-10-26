@@ -80,15 +80,12 @@ func (c Client) Do(ctx context.Context, deviceName string, payloadHex string) (R
 	if method == "" { method = http.MethodPost }
 
 	url := strings.TrimRight(c.BaseURL, "/") + "/" + deviceName
-	body := RequestBody{}
-	key := c.PayloadField
-	if key == "" { key = "payload" }
-	body[key] = payloadHex
-	b, _ := json.Marshal(body)
+	b := []byte(payloadHex)
 
 	req, err := http.NewRequestWithContext(ctx, method, url, bytes.NewReader(b))
 	if err != nil { return out, err }
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Accept", "application/json")
 	// Auth
 	switch strings.ToLower(c.AuthType) {
 	case "bearer":
@@ -100,6 +97,7 @@ func (c Client) Do(ctx context.Context, deviceName string, payloadHex string) (R
 	}
 
 	client := &http.Client{ Timeout: c.Timeout }
+	c.Logger.Info().Str("url", url).Str("payload_hex", payloadHex).Msg("aloxy http request")
 	resp, err := client.Do(req)
 	if err != nil { return out, err }
 	defer resp.Body.Close()
