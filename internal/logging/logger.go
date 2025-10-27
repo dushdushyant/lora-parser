@@ -32,6 +32,7 @@ func NewLogger(filePath, level string, maxSizeMB, maxBackups, maxAgeDays int) (z
 	}
 	mw := io.MultiWriter(os.Stdout, lj)
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnixMs
-	logger := log.Output(mw).Level(lvl)
-	return logger, func() { _ = lj.Close() }, nil
+	base := zerolog.New(mw).Level(lvl).With().Timestamp().Caller().Logger()
+	log.Logger = base
+	return base, func() { _ = lj.Close() }, nil
 }
