@@ -7,7 +7,7 @@
         "DeviceEvents": {
             "properties": {
                 "status": {
-                    "rightButtonPressed": true,
+                    "rightButtonPressed": false,
                     "rightButtonPressedTimestamp": "2025-10-24T06:34:56.443234532Z",
                     "timestamp": "2025-10-24T12:34:56.443234532Z"
                 }
@@ -47,7 +47,7 @@
                         "totalRotation": 3,
                         "normalizedTotalRotation": 42
                     },
-                    "valid": true,
+                    "valid": false,
                     "timestamp": "2025-10-24T12:34:56.443234532Z"
                 }
             }

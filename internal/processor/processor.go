@@ -112,7 +112,7 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 	})
 	outs = append(outs, FlatOut{
 		Value:     resp.Features.DeviceEvents.Properties.Status.RightButtonPressed,
-		Status:    valid,
+		Status:    true,
 		Sensor:    name + "-RBTNP",
 		StartTime: startRbtnp,
 	})
@@ -120,13 +120,17 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 }
 
 func formatToGMT(ts string) string {
-	if ts == "" { return "" }
+	if ts == "" {
+		return ""
+	}
 	layouts := []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02T15:04:05"}
 	var t time.Time
 	var err error
 	for _, l := range layouts {
 		t, err = time.Parse(l, ts)
-		if err == nil { break }
+		if err == nil {
+			break
+		}
 	}
 	if err != nil {
 		return ts // fallback

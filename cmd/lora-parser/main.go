@@ -35,22 +35,22 @@ func main() {
 	}
 
 	inClient, err := mqttcli.NewClient(mqttcli.ClientOptions{
-		Broker:   cfg.MQTTInput.Broker,
-		ClientID: cfg.MQTTInput.ClientID,
-		Username: cfg.MQTTInput.Username,
-		Password: cfg.MQTTInput.Password,
-		Clean:    true,
+		Broker:    cfg.MQTTInput.Broker,
+		ClientID:  cfg.MQTTInput.ClientID,
+		Username:  cfg.MQTTInput.Username,
+		Password:  cfg.MQTTInput.Password,
+		Clean:     true,
 		KeepAlive: 30,
 	})
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to create input mqtt client")
 	}
 	outClient, err := mqttcli.NewClient(mqttcli.ClientOptions{
-		Broker:   cfg.MQTTOutput.Broker,
-		ClientID: cfg.MQTTOutput.ClientID,
-		Username: cfg.MQTTOutput.Username,
-		Password: cfg.MQTTOutput.Password,
-		Clean:    true,
+		Broker:    cfg.MQTTOutput.Broker,
+		ClientID:  cfg.MQTTOutput.ClientID,
+		Username:  cfg.MQTTOutput.Username,
+		Password:  cfg.MQTTOutput.Password,
+		Clean:     true,
 		KeepAlive: 30,
 	})
 	if err != nil {
@@ -81,8 +81,8 @@ func main() {
 	}
 
 	proc := processor.Processor{
-		Logger:            logger,
-		Aloxy:             al,
+		Logger:             logger,
+		Aloxy:              al,
 		SensorNameByDevEUI: sensorMap,
 	}
 
@@ -111,6 +111,10 @@ func main() {
 					logger.Warn().Str("sosid", sosid).Msg("missing tagid mapping; skipping tag")
 					continue
 				}
+				if !o.Status { //checking and ignoring status for properties valid false
+					logger.Info().Str("sosid", sosid).Msg("Skipping as valid status is false")
+					continue
+				}
 				wp.Tags = append(wp.Tags, processor.WriteTag{
 					TagID:       tagid,
 					SosID:       sosid,
@@ -119,7 +123,8 @@ func main() {
 				})
 			}
 			if len(wp.Tags) > 0 {
-				wb, _ := json.Marshal(wp)
+				arr := []processor.WritePayload{wp}
+				wb, _ := json.Marshal(arr)
 				if err := outClient.Publish(ctx, cfg.LoraWriteOutput.LoraWriteTopic, byte(cfg.LoraWriteOutput.QoS), cfg.LoraWriteOutput.Retain, wb); err != nil {
 					logger.Error().Err(err).Msg("publish lora_write_output failed")
 				} else {
