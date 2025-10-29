@@ -29,7 +29,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	sensorMap, tagMap, err := config.LoadSensors(cfg.Sensors.MapFile)
+	_, tagMap, err := config.LoadSensors(cfg.Sensors.MapFile)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("failed to load sensor map")
 	}
@@ -81,18 +81,25 @@ func main() {
 	}
 
 	proc := processor.Processor{
-		Logger:             logger,
-		Aloxy:              al,
-		SensorNameByDevEUI: sensorMap,
+		Logger: logger,
+		Aloxy:  al,
+		PropertyMap:  cfg.SensorPropertyMap,
+		PropertyMeta: cfg.SensorPropertyMeta,
+		PropertyTimestamp: cfg.SensorPropertyTimestamp,
+		PropertyStatus:    cfg.SensorPropertyStatus,
 	}
 
 	h := func(topic string, payload []byte) {
-		outs, _, devEUI, err := proc.HandleMessage(ctx, payload)
+		logger.Info().Str("topic", topic).Int("bytes", len(payload)).Msg("message received")
+		oos, _, devEUI, err := proc.HandleMessage(ctx, payload)
 		if err != nil {
 			logger.Error().Err(err).Msg("processing failed")
 			return
 		}
-		for _, o := range outs {
+		if len(oos) == 0 {
+			logger.Warn().Msg("no outputs produced from message; check sensor_property_* paths")
+		}
+		for _, o := range oos {
 			b, _ := json.Marshal(o)
 			if err := outClient.Publish(ctx, cfg.MQTTOutput.LoraOutputTopic, byte(cfg.MQTTOutput.QoS), cfg.MQTTOutput.Retain, b); err != nil {
 				logger.Error().Err(err).Msg("publish failed")
@@ -104,7 +111,7 @@ func main() {
 		// Aggregate second output (Option B): single message with array of tags
 		if cfg.LoraWriteOutput.LoraWriteTopic != "" {
 			wp := processor.WritePayload{Status: "W"}
-			for _, o := range outs {
+			for _, o := range oos {
 				sosid := o.Sensor // exactly same as first output's sensor field
 				tagid := tagMap[sosid]
 				if tagid == "" {

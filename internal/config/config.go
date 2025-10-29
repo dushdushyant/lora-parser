@@ -58,6 +58,10 @@ type Config struct {
 	Aloxy      AloxyConfig
 	Logging    LoggingConfig
 	Sensors    SensorsConfig
+	SensorPropertyMap  map[string]string
+	SensorPropertyMeta map[string]string
+	SensorPropertyTimestamp map[string]string
+	SensorPropertyStatus    map[string]string
 }
 
 func Load(path string) (Config, error) {
@@ -85,6 +89,11 @@ func Load(path string) (Config, error) {
 	if err := f.Section("sensors").MapTo(&cfg.Sensors); err != nil {
 		return cfg, err
 	}
+	// Optional dynamic property map and meta sections
+	cfg.SensorPropertyMap = f.Section("sensor_property_map").KeysHash()
+	cfg.SensorPropertyMeta = f.Section("sensor_property_meta").KeysHash()
+	cfg.SensorPropertyTimestamp = f.Section("sensor_property_timestamp").KeysHash()
+	cfg.SensorPropertyStatus = f.Section("sensor_property_status").KeysHash()
 	// Normalize topics: remove surrounding single/double quotes if present
 	cfg.MQTTInput.LoraInputTopic = strings.Trim(cfg.MQTTInput.LoraInputTopic, "\"'")
 	cfg.MQTTOutput.LoraOutputTopic = strings.Trim(cfg.MQTTOutput.LoraOutputTopic, "\"'")

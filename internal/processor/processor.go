@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -18,7 +19,17 @@ import (
 type Processor struct {
 	Logger             zerolog.Logger
 	Aloxy              aloxy.Client
-	SensorNameByDevEUI map[string]string
+	// Configuration-driven property paths
+	// e.g., PropertyMap["STATUS_OPEN"] = "Features.ValvePosition.Properties.Status.LogicalPosition.Open"
+	PropertyMap        map[string]string
+	// e.g., PropertyMeta["StartTime"] = "Features.ValvePosition.Properties.Status.Timestamp"
+	//       PropertyMeta["Status"]    = "Features.ValvePosition.Properties.Status.Valid"
+	PropertyMeta       map[string]string
+	// Optional per-sensor overrides
+	// e.g., PropertyTimestamp["RBTNP_TIME"] = "Features.DeviceEvents.Properties.status.rightButtonPressedTimestamp"
+	PropertyTimestamp  map[string]string
+	// e.g., PropertyStatus["RBTNP_STATUS"] = "true" or a path like "Features...valid"
+	PropertyStatus     map[string]string
 }
 
 type FlatOut struct {
@@ -68,55 +79,146 @@ func (p Processor) HandleMessage(ctx context.Context, payload []byte) ([]FlatOut
 	if err != nil {
 		return nil, "", "", err
 	}
-	// Prefer new schema fields inside status, with backward compatibility to older schema
-	valid := resp.Features.ValvePosition.Properties.Status.Valid
-	if !valid {
-		valid = resp.Features.ValvePosition.Properties.Valid
+	// Resolve meta defaults from configuration
+	// Default fallbacks maintain prior behavior if paths are missing
+	globalStatus := true
+	if path, ok := p.PropertyMeta["Status"]; ok {
+		if v, ok := getByPath(resp, path); ok {
+			switch b := v.(type) {
+			case bool:
+				globalStatus = b
+			case *bool:
+				if b != nil {
+					globalStatus = *b
+				}
+			case int:
+				globalStatus = b != 0
+			case float64:
+				globalStatus = b != 0
+			}
+		} else {
+			p.Logger.Warn().Str("path", path).Msg("Failed to resolve status path")
+		}
 	}
-	vpTs := resp.Features.ValvePosition.Properties.Status.Timestamp
-	if strings.TrimSpace(vpTs) == "" {
-		vpTs = resp.Features.ValvePosition.Properties.Timestamp
+	globalStart := ""
+	if path, ok := p.PropertyMeta["StartTime"]; ok {
+		if v, ok := getByPath(resp, path); ok {
+			if s, ok := v.(string); ok {
+				p.Logger.Info().Str("vp_timestamp_raw", s).Msg("aloxy vp timestamp")
+				globalStart = formatToGMT(strings.TrimSpace(s))
+			}
+		} else {
+			p.Logger.Warn().Str("path", path).Msg("Failed to resolve start time path")
+		}
 	}
-	p.Logger.Info().Str("vp_timestamp_raw", vpTs).Msg("aloxy vp timestamp")
-	start := formatToGMT(vpTs)
-	// Right-button event specific timestamp
-	deRbtnpTs := resp.Features.DeviceEvents.Properties.Status.RightButtonPressedTimestamp
-	if strings.TrimSpace(deRbtnpTs) == "" {
-		deRbtnpTs = resp.Features.DeviceEvents.Properties.Status.Timestamp
-	}
-	startRbtnp := formatToGMT(deRbtnpTs)
 
-	name := p.SensorNameByDevEUI[devEUI]
-	if name == "" {
-		name = devEUI
-	}
+	// Use deviceName directly as the base sensor name
+	name := deviceName
 
-	outs := make([]FlatOut, 0, 4)
-	outs = append(outs, FlatOut{
-		Value:     resp.Features.ValvePosition.Properties.Status.LogicalPosition.Open,
-		Status:    valid,
-		Sensor:    name + "-STATUS_OPEN",
-		StartTime: start,
-	})
-	outs = append(outs, FlatOut{
-		Value:     resp.Features.ValvePosition.Properties.Status.LogicalPosition.Closed,
-		Status:    valid,
-		Sensor:    name + "-STATUS_CLOSE",
-		StartTime: start,
-	})
-	outs = append(outs, FlatOut{
-		Value:     resp.Features.ValvePosition.Properties.Status.LogicalPosition.OpenPercentage,
-		Status:    valid,
-		Sensor:    name + "-PERCENTAGE_OPEN",
-		StartTime: start,
-	})
-	outs = append(outs, FlatOut{
-		Value:     resp.Features.DeviceEvents.Properties.Status.RightButtonPressed,
-		Status:    true,
-		Sensor:    name + "-RBTNP",
-		StartTime: startRbtnp,
-	})
+	// Build outputs dynamically from PropertyMap
+	outs := make([]FlatOut, 0, len(p.PropertyMap))
+	for suffix, path := range p.PropertyMap {
+		if v, ok := getByPath(resp, path); ok {
+			// Per-sensor overrides for status and start time
+			st := globalStart
+			if tsPath, ok := p.PropertyTimestamp[suffix+"_TIME"]; ok {
+				if tv, ok := getByPath(resp, tsPath); ok {
+					if s, ok := tv.(string); ok {
+						st = formatToGMT(strings.TrimSpace(s))
+					}
+				} else {
+					p.Logger.Warn().Str("path", tsPath).Str("sensor", suffix).Msg("Failed to resolve per-sensor timestamp path")
+				}
+			}
+			sv := globalStatus
+			if sConf, ok := p.PropertyStatus[suffix+"_STATUS"]; ok {
+				// Allow direct literal booleans "true"/"false"
+				low := strings.ToLower(strings.TrimSpace(strings.Trim(sConf, "\"'")))
+				if low == "true" || low == "false" {
+					sv = (low == "true")
+				} else {
+					if pv, ok := getByPath(resp, sConf); ok {
+						switch b := pv.(type) {
+						case bool:
+							sv = b
+						case *bool:
+							if b != nil {
+								sv = *b
+							}
+						case int:
+							sv = b != 0
+						case float64:
+							sv = b != 0
+						}
+					} else {
+						p.Logger.Warn().Str("path", sConf).Str("sensor", suffix).Msg("Failed to resolve per-sensor status path")
+					}
+				}
+			}
+			outs = append(outs, FlatOut{
+				Value:     v,
+				Status:    sv,
+				Sensor:    name + "-" + suffix,
+				StartTime: st,
+			})
+		} else {
+			p.Logger.Warn().Str("path", path).Msg("Failed to resolve property path")
+		}
+	}
 	return outs, name, devEUI, nil
+}
+
+func getByPath(data any, path string) (any, bool) {
+	v := reflect.ValueOf(data)
+	for _, seg := range strings.Split(path, ".") {
+		if v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return nil, false
+			}
+			v = v.Elem()
+		}
+		if v.Kind() != reflect.Struct {
+			return nil, false
+		}
+		t := v.Type()
+		// Try direct field name (case sensitive)
+		f := v.FieldByName(seg)
+		if !f.IsValid() {
+			// Try case-insensitive match and JSON tag match
+			matched := false
+			lowerSeg := strings.ToLower(seg)
+			for i := 0; i < t.NumField(); i++ {
+				sf := t.Field(i)
+				// Exported fields only
+				if sf.PkgPath != "" { // unexported
+					continue
+				}
+				// Compare by case-insensitive field name
+				if strings.ToLower(sf.Name) == lowerSeg {
+					f = v.Field(i)
+					matched = true
+					break
+				}
+				// Compare by json tag
+				if tag := sf.Tag.Get("json"); tag != "" {
+					tagName := strings.Split(tag, ",")[0]
+					if tagName == seg || strings.ToLower(tagName) == lowerSeg {
+						f = v.Field(i)
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				return nil, false
+			}
+		}
+		v = f
+	}
+	if v.Kind() == reflect.Ptr && !v.IsNil() {
+		v = v.Elem()
+	}
+	return v.Interface(), true
 }
 
 func formatToGMT(ts string) string {
