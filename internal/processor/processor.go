@@ -177,6 +177,12 @@ func getByPath(data any, path string) (any, bool) {
 			}
 			v = v.Elem()
 		}
+		if v.Kind() == reflect.Interface {
+			if v.IsNil() {
+				return nil, false
+			}
+			v = v.Elem()
+		}
 		if v.Kind() != reflect.Struct {
 			return nil, false
 		}
@@ -215,7 +221,16 @@ func getByPath(data any, path string) (any, bool) {
 		}
 		v = f
 	}
-	if v.Kind() == reflect.Ptr && !v.IsNil() {
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, false
+		}
+		v = v.Elem()
+	}
+	if v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, false
+		}
 		v = v.Elem()
 	}
 	return v.Interface(), true

@@ -1,0 +1,44 @@
+{
+    "thingId": "thingId",
+    "policyId": "policyId",
+    "definition": "definition",
+    "attributes": {},
+    "features": {
+        "ConnectionStatus": {
+            "properties": {
+                "status": {
+                    "level": "ALERT"
+                },
+                "issues": {
+                    "CONNECTION_LOST": {
+                        "timestamp": "2025-10-24T12:34:56.443234532Z",
+                        "severity": "CRITICAL",
+                        "persistance": "PERSISTENT",
+                        "action": "FIRE"
+                    }
+                }
+            },
+            "definition": [
+                "definition"
+            ]
+        },
+        "ValvePosition": {
+            "properties": {
+                "status": {
+                    "logicalPosition": {
+                        "open": true,
+                        "closed": false,
+                        "openPercentage": 42
+                    },
+                    "physicalPosition": {
+                        "openPercentage": 23,
+                        "totalRotation": 3,
+                        "normalizedTotalRotation": 42
+                    },
+                    "valid": false,
+                    "timestamp": "2025-10-24T12:34:56.443234532Z"
+                }
+            }
+        }
+    }
+}
